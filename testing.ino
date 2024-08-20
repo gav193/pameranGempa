@@ -1,37 +1,72 @@
-#include <ESP32Servo.h>
+// #include <ESP32Servo.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_ADXL345_U.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <base64.h>
 
 #define TRIG_PIN 18  // Trigger pin
 #define ECHO_PIN 19  // Echo pin
 #define EN_PIN 2     // Enable button as input
-#define BUZZ_PIN 4   // Buzzer enable
-#define BUZZER 33
+#define BLINK_PIN 4   // Blink pin
+#define BUZZER 33   // Buzzer pin
 #define SCL_PIN 22 // Define the SCL pin
 #define SDA_PIN 21  // Define the SDA pin
+#define green 25 // for leds
+#define yellow 26
+#define red 32
 
-#define SCREEN_WIDTH 128
+#define IN1 14 // dc motor driver pins
+#define IN2 27
+#define ENA 12
+
+#define SCREEN_WIDTH 128 // lcd dimensions
 #define SCREEN_HEIGHT 32
 
 // Create an instance of the display
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-Adafruit_ADXL345_Unified adxl345 = Adafruit_ADXL345_Unified();
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1); // lcd
+Adafruit_ADXL345_Unified adxl345 = Adafruit_ADXL345_Unified(); // accelerometer
 
-Servo myServo;  // Create a Servo object to control the servo
-Servo myServo2;
+const char* ssid = "TAMSAR_LT1";
+const char* password = "LT143BSD";
+
+String url; 
 
 void setup() {
-  myServo.attach(13);  // Attach to GPIO 13 or any other PWM-capable pin on ESP32
-  myServo2.attach(23);
-  pinMode(EN_PIN, INPUT); // Enable button
-  pinMode(BUZZ_PIN, OUTPUT); // Buzzer
+  // myServo.attach(13);  // Attach to GPIO 13 or any other PWM-capable pin on ESP32
+  // myServo2.attach(23);
+  pinMode(EN_PIN, INPUT); 
+  pinMode(BLINK_PIN, OUTPUT); 
   pinMode(BUZZER, OUTPUT);
+  pinMode(green,OUTPUT);
+  pinMode(yellow, OUTPUT);
+  pinMode(red,OUTPUT);
+
   Wire.begin(SDA_PIN, SCL_PIN);  // Initialize I2C with SDA and SCL pins
-  Serial.begin(115200);
-  
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(ENA, OUTPUT);
+  ledcAttach(ENA, 5000, 8); // analog reading 
+
+  WiFi.hostname("NodeMCU");
+  WiFi.begin(ssid,password);
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Wifi Not Connected");
+    delay(500);
+  }
+
+  Serial.begin(115200); // baud rate
+
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(green, LOW);
+  digitalWrite(yellow, LOW);
+  digitalWrite(red, LOW);
+  ledcWrite(ENA,0);
+
   // Initialize the OLED display with the correct address
   if (!display.begin(SSD1306_PAGEADDR, 0x3C)) {  // Use 0x3C or 0x3D depending on your display
     Serial.println(F("SSD1306 allocation failed"));
@@ -59,11 +94,11 @@ void setup() {
   display.print(F("Hello, World!"));
   digitalWrite(BUZZER,LOW);
   display.display();  // Update the display with the new content
+  digitalWrite(BLINK_PIN, LOW);
 }
 
 void loop() {
   // Measure distance
-  digitalWrite(BUZZER,LOW);
   digitalWrite(TRIG_PIN, HIGH);
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
@@ -77,119 +112,245 @@ void loop() {
 
   sensors_event_t event;
   adxl345.getEvent(&event);
-
-  //Serial.print("X: ");
-  float x = event.acceleration.x;
-  Serial.println(x);
-  //Serial.print(" m/s^2\tY: ");
-  float y = event.acceleration.y;
-  Serial.println(y);
-  //Serial.print(" m/s^2\tZ: ");
-  float z = event.acceleration.z;
-  //Serial.println(" m/s^2");
-  Serial.println(z);
+  // measure 1st accel
+  Serial.print("X: ");
+  float x1 = event.acceleration.x;
+  Serial.print(x1);
+  Serial.print(" m/s^2\nY: ");
+  float y1 = event.acceleration.y;
+  Serial.print(y1);
+  Serial.print(" m/s^2\nZ: ");
+  float z1 = event.acceleration.z;
+  Serial.print(z1);
+  Serial.println(" m/s^2");
   Serial.println("==========");
   int enable = digitalRead(EN_PIN);
-
   delay(10);
+  // measure 2nd accel
+  adxl345.getEvent(&event);
+  float x2 = event.acceleration.x;
+  Serial.print("X: ");
+  Serial.print(x2);
+  Serial.print(" m/s^2\nY: ");
+  float y2 = event.acceleration.y;
+  Serial.print(y2);
+  Serial.print(" m/s^2\nZ: ");
+  float z2 = event.acceleration.z;
+  Serial.print(z2);
+  Serial.println(" m/s^2");
 
+  float x = abs(x2-x1);
+  float y = abs(y2-y1);
+  float z = abs(z2-z1);
+  Serial.println("||||||||||");
+  Serial.print("x = ");
+  Serial.println(x);
+  Serial.print("y = ");
+  Serial.println(y);
+  Serial.print("z = ");
+  Serial.println(z);
+  
+  delay(10);
   if (enable == HIGH) { // Switch ON
     Serial.println("Enable switch is ON");
     display.clearDisplay();
     display.setCursor(0,0);
     display.printf("Switch: ON\nDistance: %.2f cm\n", distance);
-    //display.display();
     if (distance == 0) {
       // skip
-    } else if (distance > 0 && distance <= 10) {
-      //display.printf("RS 1.5\n");
-      myServo.write(0);    // Move the servo to 0 degrees
-      myServo2.write(10);
-      delay(100);         // Wait for a second
-
-      myServo.write(10);   // Move the servo to 20 degrees
-      myServo2.write(0);
-      delay(100);         // Wait for a second
-
-      myServo.write(0);    // Move the servo back to 0 degrees
-      myServo2.write(10);
-      delay(100);        // Wait for a second
-    } else if (distance > 10 && distance <= 20) {
-      //display.printf("RS 3\n");
-      myServo.write(0);    // Move the servo to 0 degrees
-      
-      myServo2.write(20);
-      delay(100);         // Wait for a second
-
-      myServo.write(20);   // Move the servo to 20 degrees
-      myServo2.write(0);
-      delay(100);        // Wait for a second
-
-      myServo.write(0);    // Move the servo back to 0 degrees
-      myServo2.write(20);
-      delay(100);         // Wait for a second
-    } else if (distance > 20 && distance <= 30) {
-      //display.printf("RS 5\n");
-      myServo.write(0);    // Move the servo to 0 degrees
-      myServo2.write(30);
-      delay(100);         // Wait for a second
-
-      myServo.write(30);   // Move the servo to 20 degrees
-      myServo2.write(0);
-      delay(100);        // Wait for a second
-
-      myServo.write(0);    // Move the servo back to 0 degrees
-      myServo2.write(30);
-      delay(100);        // Wait for a second
-    } else {
-      //display.printf("RS 7\n");
-      delay(10);
-      digitalWrite(BUZZER,HIGH);
-      myServo.write(0);    // Move the servo to 0 degrees
-      myServo2.write(40);
-      delay(100);         // Wait for a second
-
-      myServo.write(40);   // Move the servo to 20 degrees
-      myServo2.write(0);
-      delay(100);         // Wait for a second
-
-      myServo.write(0);    // Move the servo back to 0 degrees
-      myServo2.write(40);
-      delay(100);       // Wait for a second
-      digitalWrite(BUZZER,LOW);
+    } else if (distance > 0 && distance <= 5) {
+      digitalWrite(IN1, HIGH);
+      digitalWrite(IN2, LOW);
+      ledcWrite(ENA, 255);
+      // display.setCursor (100,0);
+      // display.printf("RS 7")
+    } else if (distance > 5 && distance <= 10) {
+      digitalWrite(IN1, HIGH);
+      digitalWrite(IN2, LOW);
+      ledcWrite(ENA,240);
+      // display.setCursor (100,0);
+      // display.printf("RS 6.5")
+    } else if (distance > 10 && distance <= 15) {
+      digitalWrite(IN1, HIGH);
+      digitalWrite(IN2, LOW);
+      ledcWrite(ENA,210);
+      // display.setCursor (100,0);
+      // display.printf("RS 6")
+    } else if (distance > 15 && distance <= 20) { 
+      digitalWrite(IN1, HIGH);
+      digitalWrite(IN2, LOW);
+      ledcWrite(ENA,180);
+      // display.setCursor (100,0);
+      // display.printf("RS 5.5")
+    } else if (distance > 20 && distance <= 25) {
+      digitalWrite(IN1, HIGH);
+      digitalWrite(IN2, LOW);
+      ledcWrite(ENA, 160);
+      // display.setCursor (100,0);
+      // display.printf("RS 5")
+    } else if (distance > 25 && distance <= 30){
+      digitalWrite(IN1, HIGH);
+      digitalWrite(IN2, LOW);
+      ledcWrite(ENA,100);
+      // display.setCursor (100,0);
+      // display.printf("RS 4.5")
+    } else { 
+      digitalWrite(IN1, HIGH);
+      digitalWrite(IN2, LOW);
+      ledcWrite(ENA,50);
+      // display.setCursor (100,0);
+      // display.printf("RS 4")
     }
     display.display();    
   } else { // Switch OFF
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
+    ledcWrite(ENA,0);
+
     Serial.println("Enable switch is OFF");
     display.clearDisplay();
     display.setCursor(0,0);
     display.print(F("Switch: OFF"));
     display.display();
     //digitalWrite(BUZZER,LOW);
-    digitalWrite(BUZZ_PIN, HIGH);
+    
+    digitalWrite(BLINK_PIN, HIGH);
     delay(1000);
-    digitalWrite(BUZZ_PIN, LOW);
+    digitalWrite(BLINK_PIN, LOW);
     delay(1000);
   }
-  delay(1000);
-  if ( x > -0.2 && x < 0.2) {
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.printf("RS 1");
-    display.display();
+  //delay(1000);
+  if ((x < 1) && (y < 1) && (z < 1)) {
+    //display.clearDisplay();
+    display.setCursor(100, 0);
+    display.printf("RS 3");
+    display.display(); 
+    digitalWrite(BUZZER, LOW);
+    Serial.println("Gempa sangat kecil, tidak perlu evakuasi");
+    digitalWrite(green, HIGH);
+    digitalWrite(yellow, LOW);
+    digitalWrite(red, LOW);
+    //send_wa("Gempa kecil, tidak perlu evakuasi");
+  } else if ((x<1.5) && (y<1.5) &&(z<1.5)) {
+    display.setCursor(100, 0);
+    display.printf("RS 3.5");
+    display.display(); 
+    digitalWrite(BUZZER, LOW);
+    Serial.println("Gempa sangat kecil, tidak perlu evakuasi");
+    digitalWrite(green, HIGH);
+    digitalWrite(yellow, LOW);
+    digitalWrite(red, LOW);
+    send_wa("Gempa sangat kecil, tidak perlu evakuasi");
+    delay(10);
   } else {
-    if (x > -0.4 && x < 0.4) {
-      display.clearDisplay();
-      display.setCursor(0, 0);
-      display.printf("RS 3");
+    if ((x < 2) && (y < 2) && (z < 2)) {
+      //display.clearDisplay();
+      display.setCursor(100, 0);
+      display.printf("RS 4");
       display.display();
+      digitalWrite(BUZZER, LOW);
+      Serial.println("Gempa kecil, tetap waspada");
+      digitalWrite(green, LOW);
+      digitalWrite(yellow, HIGH);
+      digitalWrite(red, LOW);
+      send_wa("Gempa kecil, tetap waspada");
+      delay(10);
+    } else if ((x < 3) && (y<3) && (z<3)){
+      display.setCursor(100, 0);
+      display.printf("RS 4.5");
+      display.display();
+      digitalWrite(BUZZER, LOW);
+      Serial.println("Gempa sedang, berlindung");
+      digitalWrite(green, LOW);
+      digitalWrite(yellow, HIGH);
+      digitalWrite(red, LOW);
+      send_wa("Gempa sedang, berlindung");
+      delay(10);
     } else {
-      display.clearDisplay();
-      display.setCursor(0, 0);
-      display.printf("RS 5");
+      if ((x < 4) && (y < 4) && (z < 4)) {
+        //display.clearDisplay();
+        display.setCursor(100, 0);
+        display.printf("RS 5");
+        digitalWrite(BUZZER,HIGH);
+        Serial.println("Gempa sedang, berlindung");
+        digitalWrite(green, LOW);
+        digitalWrite(yellow, HIGH);
+        digitalWrite(red, LOW);
+        send_wa("Gempa sedang, berlindung");
+        delay(10);
+      } 
+      else { 
+        if ((x < 6) && (y < 6) && (z < 6)) {
+          //display.clearDisplay();
+          display.setCursor(100, 0);
+          display.printf("RS 6");
+          digitalWrite(BUZZER,HIGH);
+          Serial.println("Gempa kuat, segera evakuasi");
+          digitalWrite(green, LOW);
+          digitalWrite(yellow, LOW);
+          digitalWrite(red, HIGH);
+          send_wa("Gempa kuat, segera evakuasi");
+          delay(10);
+        } else { 
+          digitalWrite(BUZZER,HIGH);
+          digitalWrite(green, LOW);
+          digitalWrite(yellow, LOW);
+          digitalWrite(red, HIGH);
+          Serial.println("Gempa sangat kuat");
+          send_wa("Gempa kuat, segera evakuasi");
+          delay(10);
+        }
+      }
       display.display();
     }
   }
 
   delay(500);  // Wait for half a second before next measurement
+}
+
+void send_wa(String pesan) {
+  static unsigned long lastRequestTime = 0;
+  unsigned long currentTime = millis();
+
+  // Check if enough time has passed since the last request
+  if (currentTime - lastRequestTime >= 60000) { // 1 minute delay
+    if (WiFi.status() == WL_CONNECTED) {
+      HTTPClient http;
+      String encodedMessage = urlencode(pesan);
+      String url = "https://api.callmebot.com/whatsapp.php?phone=62895330508021&text=" + encodedMessage + "&apikey=2603405";
+      http.begin(url);
+      int httpCode = http.GET();
+      if (httpCode > 0) {
+        String response = http.getString();
+        Serial.println("HTTP Code: " + String(httpCode));
+        Serial.println("Response: " + response);
+      } else {
+        Serial.println("Error sending message: " + String(httpCode));
+      }
+      http.end();
+      lastRequestTime = currentTime; // Update last request time
+    } else {
+      Serial.println("Error: Not connected to WiFi");
+    }
+  } else {
+    Serial.println("Rate limit: waiting before next request");
+  }
+}
+
+String urlencode(String str) {
+  String encoded = "";
+  char c;
+  for (int i = 0; i < str.length(); i++) {
+    c = str.charAt(i);
+    if (c == ' ') {
+      encoded += "+";
+    } else if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+      encoded += c;
+    } else {
+      encoded += "%";
+      encoded += String(c >> 4, HEX);
+      encoded += String(c & 0x0F, HEX);
+    }
+  }
+  return encoded;
 }
