@@ -30,8 +30,8 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1); // lcd
 Adafruit_ADXL345_Unified adxl345 = Adafruit_ADXL345_Unified(); // accelerometer
 
-const char* ssid = "TAMSAR_LT1";
-const char* password = "LT143BSD";
+const char* ssid = "wifi name here";
+const char* password = "wifi pass here";
 
 String url; 
 
@@ -317,7 +317,7 @@ void send_wa(String pesan) {
     if (WiFi.status() == WL_CONNECTED) {
       HTTPClient http;
       String encodedMessage = urlencode(pesan);
-      String url = "https://api.callmebot.com/whatsapp.php?phone=62895330508021&text=" + encodedMessage + "&apikey=2603405";
+      String url = "enter url address here" + encodedMessage + "enter apikey here";
       http.begin(url);
       int httpCode = http.GET();
       if (httpCode > 0) {
